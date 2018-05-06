@@ -6,9 +6,10 @@ const db = require('byteballcore/db');
 const eventBus = require('byteballcore/event_bus.js');
 const texts = require('./modules/texts.js');
 const validationUtils = require('byteballcore/validation_utils');
+const headlessWallet = require('headless-byteball');
 const notifications = require('./modules/notifications');
 const conversion = require('./modules/conversion.js');
-const realNameAttestation = require('./modules/real_name_attestation.js');
+const redditAttestation = require('./modules/reddit-attestation.js');
 const reward = require('./modules/reward.js');
 const server = require('./modules/server');
 
@@ -62,8 +63,8 @@ function handleWalletReady() {
 	 * check if database tables is created
 	 */
 	let arrTableNames = [
-		'users','receiving_addresses','transactions','attestation_units','rejected_payments',
-		'reward_units','referral_reward_units'
+		'users','reddit_users','receiving_addresses','transactions','attestation_units',
+		'rejected_payments','reward_units','referral_reward_units'
 	];
 	db.query("SELECT name FROM sqlite_master WHERE type='table' AND NAME IN (?)", [arrTableNames], (rows) => {
 		if (rows.length !== arrTableNames.length) {
@@ -87,18 +88,18 @@ function handleWalletReady() {
 
 		headlessWallet.issueOrSelectAddressByIndex(0, 0, (address1) => {
 			console.log('== investor attestation address: ' + address1);
-			investorAttestation.investorAttestorAddress = address1;
+			redditAttestation.redditAttestorAddress = address1;
 			reward.distributionAddress = address1;
 
 			// headlessWallet.issueOrSelectAddressByIndex(0, 1, (address2) => {
-				console.log('== distribution address: ' + address2);
+				// console.log('== distribution address: ' + address2);
 				// reward.distributionAddress = address2;
 
         server.start();
 
-				// setInterval(investorAttestation.retryPostingAttestations, 10*1000);
+				// setInterval(redditAttestation.retryPostingAttestations, 10*1000);
 				// setInterval(reward.retrySendingRewards, 10*1000);
-				// setInterval(moveFundsToAttestorAddresses, 60*1000);
+				setInterval(moveFundsToAttestorAddresses, 10*1000);
 				// setInterval(verifyInvestor.retryCheckAuthAndPostVerificationRequest, 10*1000);
 				// setInterval(pollVerificationResults, 60*1000);
 			// });
@@ -126,12 +127,12 @@ function moveFundsToAttestorAddresses() {
 				return;
 			}
 
-			let arrAddresses = rows.map(row => row.receiving_address);
-			// console.error(arrAddresses, investorAttestation.investorAttestorAddress);
-			let headlessWallet = require('headless-byteball');
+			const arrAddresses = rows.map(row => row.receiving_address);
+			// console.error(arrAddresses, redditAttestation.redditAttestorAddress);
+			const headlessWallet = require('headless-byteball');
 			headlessWallet.sendMultiPayment({
 				asset: null,
-				to_address: investorAttestation.investorAttestorAddress,
+				to_address: redditAttestation.redditAttestorAddress,
 				send_all: true,
 				paying_addresses: arrAddresses
 			}, (err, unit) => {
@@ -151,7 +152,7 @@ function moveFundsToAttestorAddresses() {
 }
 
 function handleNewTransactions(arrUnits) {
-	let device = require('byteballcore/device.js');
+	const device = require('byteballcore/device.js');
 	db.query(
 		`SELECT
 			amount, asset, unit,
@@ -170,48 +171,13 @@ function handleNewTransactions(arrUnits) {
 		(rows) => {
 			rows.forEach((row) => {
 
-				function checkPayment(onDone) {
-					let delay = Math.round(Date.now()/1000 - row.price_ts);
-					let bLate = (delay > conf.PRICE_TIMEOUT);
-					if (row.asset !== null) {
-						return onDone("Received payment in wrong asset", delay);
-					}
-
-					let current_price = conversion.getPriceInBytes(conf.priceInUSD);
-					let expected_amount = bLate ? current_price : row.price;
-					if (row.amount < expected_amount) {
-						updatePrice(row.device_address, current_price);
-						let text = `Received ${(row.amount/1e9)} GB from you`;
-						text += bLate
-							? ".\nYour payment is too late and less than the current price."
-							: `, which is less than the expected ${(row.price/1e9)} GB.`;
-						return onDone(text + '\n\n' + texts.pleasePay(row.receiving_address, current_price, row.user_address), delay);
-					}
-
-					db.query("SELECT address FROM unit_authors WHERE unit=?", [row.unit], (author_rows) => {
-						if (author_rows.length !== 1) {
-							resetUserAddress();
-							return onDone("Received a payment but looks like it was not sent from a single-address wallet.  "+texts.switchToSingleAddress());
-						}
-						if (author_rows[0].address !== row.user_address) {
-							resetUserAddress();
-							return onDone("Received a payment but it was not sent from the expected address "+row.user_address+".  "+texts.switchToSingleAddress());
-						}
-						onDone();
-					});
-				}
-
-				function resetUserAddress(){
-					db.query("UPDATE users SET user_address=NULL WHERE device_address=?", [row.device_address]);
-				}
-
-				checkPayment((error, delay) => {
+				checkPayment(row, (error) => {
 					if (error) {
 						return db.query(
 							`INSERT ${db.getIgnore()} INTO rejected_payments
-							(receiving_address, price, received_amount, delay, payment_unit, error)
-							VALUES (?,?, ?,?, ?,?)`,
-							[row.receiving_address, row.price, row.amount, delay, row.unit, error],
+							(receiving_address, price, received_amount, payment_unit, error)
+							VALUES (?,?,?,?,?)`,
+							[row.receiving_address, row.price, row.amount, row.unit, error],
 							() => {
 								device.sendMessageToDevice(row.device_address, 'text', error);
 							}
@@ -235,34 +201,51 @@ function handleNewTransactions(arrUnits) {
 	);
 }
 
+function checkPayment(row, onDone) {
+	if (row.asset !== null) {
+		return onDone("Received payment in wrong asset");
+	}
+
+	if (row.amount < conf.priceInBytes) {
+		const text = `Received ${row.amount} Bytes from you, which is less than the expected ${conf.priceInBytes} Bytes.`;
+		return onDone(text + '\n\n' + texts.pleasePay(row.receiving_address, conf.priceInBytes));
+	}
+
+	function resetUserAddress() {
+		db.query("UPDATE users SET user_address=NULL WHERE device_address=?", [row.device_address]);
+	}
+	
+	db.query("SELECT address FROM unit_authors WHERE unit=?", [row.unit], (author_rows) => {
+		if (author_rows.length !== 1) {
+			resetUserAddress();
+			return onDone("Received a payment but looks like it was not sent from a single-address wallet.  "+texts.switchToSingleAddress());
+		}
+		if (author_rows[0].address !== row.user_address){
+			resetUserAddress();
+			return onDone("Received a payment but it was not sent from the expected address "+row.user_address+".  "+texts.switchToSingleAddress());
+		}
+		onDone();
+	});
+}
+
 function handleTransactionsBecameStable(arrUnits) {
-	let device = require('byteballcore/device.js');
+	const device = require('byteballcore/device.js');
 	db.query(
 		`SELECT 
-			transaction_id, 
-			device_address, user_address,
-			(SELECT src_profile FROM private_profiles WHERE private_profiles.address = receiving_addresses.user_address LIMIT 1) AS src_profile
+			transaction_id, device_address
 		FROM transactions
 		JOIN receiving_addresses USING(receiving_address)
 		WHERE payment_unit IN(?)`,
 		[arrUnits],
 		(rows) => {
 			rows.forEach((row) => {
-
-				srcProfile.parseSrcProfile(row);
-
 				db.query(
 					`UPDATE transactions 
-					SET confirmation_date=${db.getNow()}, is_confirmed=1, vi_status='in_authentication'
+					SET confirmation_date=${db.getNow()}, is_confirmed=1 
 					WHERE transaction_id=?`,
 					[row.transaction_id],
 					() => {
-						device.sendMessageToDevice(
-							row.device_address,
-							'text',
-							texts.paymentIsConfirmed() + '\n\n' +
-							texts.clickInvestorLink(verifyInvestor.getAuthUrl(`ua${row.user_address}_${row.device_address}`, row.src_profile))
-						);
+						device.sendMessageToDevice(row.device_address, 'text', texts.paymentIsConfirmed());
 					}
 				);
 			});
@@ -277,89 +260,130 @@ function handleTransactionsBecameStable(arrUnits) {
  * @param response
  */
 function respond (from_address, text, response = '') {
-	let device = require('byteballcore/device.js');
+	const device = require('byteballcore/device.js');
+	const mutex = require('byteballcore/mutex.js');
 	readUserInfo(from_address, (userInfo) => {
 
-		function checkUserAddress(onDone) {
+		function checkRedditUser() {
+			return new Promise((resolve, reject) => {
+				/**
+				 * check if user request new reddit account
+				 */
+				if (userInfo.request_reddit_user_id) {
+					const reqRedditUID = userInfo.request_reddit_user_id;
+	
+					if (text === 'yes') {
+						return mutex.lock([from_address], (unlock) => {
+							return db.query(
+								`UPDATE users 
+								SET request_reddit_user_id=?, reddit_user_id=?
+								WHERE device_address=?`,
+								[null, reqRedditUID, from_address],
+								() => {
+									unlock();
 
-			function saveBBAddressToUser(address) {
-				userInfo.user_address = address;
-				response += texts.goingToAttestAddress(userInfo.user_address);
-				return db.query(
-					'UPDATE users SET user_address=? WHERE device_address=?',
-					[userInfo.user_address, from_address],
-					() => {
-						onDone();
+									getRedditUserDataById(reqRedditUID, (row) => {
+										resolve(texts.confirmedRequestRedditAccount(row.reddit_name) + '\n\n' + texts.insertMyAddress());
+									});
+								}
+							);
+						});
 					}
-				);
-			}
+					if (text === 'no') {
+						return mutex.lock([from_address], (unlock) => {
+							return db.query(
+								`UPDATE users 
+								SET request_reddit_user_id=?
+								WHERE device_address=?`,
+								[null, from_address],
+								() => {
+									unlock();
 
-			let arrProfileMatches = text.match(/\(profile:(.+?)\)/);
+									getRedditUserDataById(reqRedditUID, (row) => {
+										device.sendMessageToDevice(from_address, 'text', texts.unconfirmedRequestRedditAccount(row.reddit_name));
+										resolve();
+									});
+								}
+							);
+						});
+					}
 
-			if (validationUtils.isValidAddress(text)) {
-				if (conf.bRequireRealName) {
-					return onDone(texts.requireInsertProfileData());
+					return getRedditUserDataById(reqRedditUID, (row) => {
+						resolve(texts.confirmRequestRedditAccount(row.reddit_name));
+					});
 				}
 
-				return saveBBAddressToUser(text);
-			}
-			else if (arrProfileMatches) {
-				if (!conf.bRequireRealName) {
-					return onDone(texts.requireInsertBBAddress());
+				if (!userInfo.reddit_user_id) {		
+					resolve(texts.allowAccessToRedditAccount(userInfo.device_address));
+				} else {
+					resolve();
 				}
-
-				let privateProfileJsonBase64 = arrProfileMatches[1];
-				let objPrivateProfile = privateProfile.getPrivateProfileFromJsonBase64(privateProfileJsonBase64);
-				if (!objPrivateProfile) {
-					return onDone("Invalid private profile");
-				}
-
-				return privateProfile.parseAndValidatePrivateProfile(objPrivateProfile, (err, address, attestor_address) => {
-					if (err) {
-						return onDone("Failed to parse the private profile: " + err);
-					}
-
-					if (conf.arrRealNameAttestors.indexOf(attestor_address) === -1) {
-						return onDone(texts.wrongRealNameAttestorAddress(attestor_address));
-					}
-
-					let assocPrivateData = privateProfile.parseSrcProfile(objPrivateProfile.src_profile);
-					let arrMissingFields = _.difference(conf.arrRequiredPersonalData, Object.keys(assocPrivateData));
-					if (arrMissingFields.length > 0) {
-						return onDone(texts.missingProfileFields(arrMissingFields));
-					}
-
-					privateProfile.savePrivateProfile(objPrivateProfile, address, attestor_address);
-					saveBBAddressToUser(address);
-				});
-			}
-
-			if (userInfo.user_address) return onDone();
-			onDone(texts.insertMyAddress());
+			});
 		}
 
-		checkUserAddress((userAddressResponse) => {
-			if (userAddressResponse) {
-				return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + userAddressResponse);
-			}
+		function checkUserAddress() {
+			return new Promise((resolve, reject) => {
+				if (validationUtils.isValidAddress(text)) {
+					userInfo.user_address = text;
+					response += texts.goingToAttestAddress(userInfo.user_address);
+					return db.query(
+						'UPDATE users SET user_address=? WHERE device_address=?',
+						[userInfo.user_address, from_address],
+						() => {
+							resolve();
+						}
+					);
+				}
+				if (userInfo.user_address) return resolve();
+				resolve(texts.insertMyAddress());
+			});
+		}
 
-			readOrAssignReceivingAddress(from_address, userInfo, (receiving_address) => {
-				let price = conversion.getPriceInBytes(conf.priceInUSD);
-				updatePrice(receiving_address, price);
+		checkRedditUser()
+			.then((redditUserResponse) => {
+				if (redditUserResponse) {
+					return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + redditUserResponse);
+				}
+
+				return checkUserAddress();
+			})
+			.then((userAddressResponse) => {
+				if (userAddressResponse) {
+					return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + userAddressResponse);
+				}
+
+				return readOrAssignReceivingAddress(from_address, userInfo);
+			})
+			.then( ({receiving_address, post_publicly}) => {
+				const price = conf.priceInBytes;
+
+				if (text === 'private' || text === 'public') {
+					post_publicly = (text === 'public') ? 1 : 0;
+					db.query(
+						`UPDATE receiving_addresses 
+						SET post_publicly=? 
+						WHERE device_address=? AND user_address=? AND reddit_user_id=?`,
+						[post_publicly, from_address, userInfo.user_address, userInfo.reddit_user_id]
+					);
+					response += (text === "private") ? texts.privateChoose() : texts.publicChoose();
+				}
+
+				if (post_publicly === null) {
+					return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + texts.privateOrPublic());
+				}
 
 				if (text === 'again') {
 					return device.sendMessageToDevice(
 						from_address,
 						'text',
-						(response ? response + '\n\n' : '') + texts.pleasePay(receiving_address, price, userInfo.user_address)
+						(response ? response + '\n\n' : '') + texts.pleasePay(receiving_address, price) + '\n\n' +
+						((post_publicly === 0) ? texts.privateChoose() : texts.publicChoose())
 					);
 				}
 
 				db.query(
 					`SELECT
-						transaction_id, is_confirmed, received_amount, user_address,
-						vi_status, vi_vr_status,
-						attestation_date
+						transaction_id, is_confirmed, received_amount, attestation_date
 					FROM transactions
 					JOIN receiving_addresses USING(receiving_address)
 					LEFT JOIN attestation_units USING(transaction_id)
@@ -375,14 +399,14 @@ function respond (from_address, text, response = '') {
 							return device.sendMessageToDevice(
 								from_address,
 								'text',
-								(response ? response + '\n\n' : '') + texts.pleasePay(receiving_address, price, userInfo.user_address)
+								(response ? response + '\n\n' : '') + texts.pleasePayOrPrivacy(receiving_address, price, post_publicly)
 							);
 						}
 
-						let row = rows[0];
+						const row = rows[0];
 
 						/**
-						 * if user paid, but transaction did not become stable
+						 * if user payed, but transaction did not become stable
 						 */
 						if (row.is_confirmed === 0) {
 							return device.sendMessageToDevice(
@@ -392,33 +416,9 @@ function respond (from_address, text, response = '') {
 							);
 						}
 
-						let vi_status = row.vi_status;
-
-						if (vi_status === 'in_authentication') {
-							return device.sendMessageToDevice(
-								from_address,
-								'text',
-								(response ? response + '\n\n' : '') +
-								texts.clickInvestorLink(verifyInvestor.getAuthUrl(`ua${row.user_address}_${from_address}`, userInfo.src_profile))
-							);
-						}
-
-						if (vi_status === 'in_verification') {
-							return device.sendMessageToDevice(
-								from_address,
-								'text',
-								(response ? response + '\n\n' : '') + texts.waitingWhileVerificationUnderWay()
-							)
-						}
-
-						if (vi_status === 'not_accredited') {
-							return device.sendMessageToDevice(
-								from_address,
-								'text',
-								(response ? response + '\n\n' : '') + texts.previousAttestationFailed(verifyInvestor.getVerReqStatusDescription(row.vi_vr_status))
-							)
-						}
-
+						/**
+						 * reddit account is in attestation
+						 */
 						if (!row.attestation_date) {
 							return device.sendMessageToDevice(
 								from_address,
@@ -428,7 +428,7 @@ function respond (from_address, text, response = '') {
 						}
 
 						/**
-						 * no more available commands, user is attested
+						 * no more available commands, reddit account is attested
 						 */
 						return device.sendMessageToDevice(
 							from_address,
@@ -439,16 +439,28 @@ function respond (from_address, text, response = '') {
 					}
 				);
 
+			})
+			.catch((err) => {
+				notifications.notifyAdmin('respond error', err.toString());
 			});
-
-		});
 	});
 }
 
-function updatePrice(receiving_address, price, cb) {
-	db.query(`UPDATE receiving_addresses SET price=?, last_price_date=${db.getNow()} WHERE receiving_address=?`, [price, receiving_address], () => {
-		if (cb) cb();
-	});
+/**
+ * get reddit user data by reddit_user_id
+ * @param id 
+ * @param cb 
+ */
+function getRedditUserDataById(id, cb) {
+	db.query(
+		`SELECT *
+		FROM reddit_users 
+		WHERE reddit_user_id=?`,
+		[id],
+		(rows) => {
+			cb(rows[0]);
+		}
+	);
 }
 
 /**
@@ -457,65 +469,60 @@ function updatePrice(receiving_address, price, cb) {
  * @param device_address
  * @param callback
  */
-function readUserInfo (device_address, callback) {
+function readUserInfo(device_address, callback) {
 	db.query(
-		`SELECT 
-			user_address, src_profile
-		FROM users
-		LEFT JOIN private_profiles ON private_profiles.address = users.user_address 
-		WHERE device_address = ?`,
-		[device_address],
+		`SELECT user_address, reddit_user_id, request_reddit_user_id 
+		FROM users 
+		WHERE device_address = ?`, 
+		[device_address], 
 		(rows) => {
 			if (rows.length) {
-				let row = rows[0];
-
-				srcProfile.parseSrcProfile(row);
-
-				callback(row);
+				callback(rows[0]);
 			} else {
 				db.query(`INSERT ${db.getIgnore()} INTO users (device_address) VALUES(?)`, [device_address], () => {
-					callback({ user_address: null, src_profile: {} });
+					callback({ device_address, user_address: null });
 				});
 			}
 		}
 	);
 }
 
-
 /**
  * read or assign receiving address
  * @param device_address
  * @param userInfo
- * @param callback
+ * @return Promise
  */
-function readOrAssignReceivingAddress(device_address, userInfo, callback) {
-	const mutex = require('byteballcore/mutex.js');
-	mutex.lock([device_address], (unlock) => {
-		db.query(
-			`SELECT receiving_address, ${db.getUnixTimestamp('last_price_date')} AS price_ts
-			FROM receiving_addresses 
-			WHERE device_address=? AND user_address=?`,
-			[device_address, userInfo.user_address],
-			(rows) => {
-				if (rows.length > 0) {
-					let row = rows[0];
-					callback(row.receiving_address);
-					return unlock();
+function readOrAssignReceivingAddress(device_address, userInfo) {
+	return new Promise((resolve, reject) => {
+		const mutex = require('byteballcore/mutex.js');
+		mutex.lock([device_address], (unlock) => {
+			db.query(
+				`SELECT receiving_address, post_publicly, ${db.getUnixTimestamp('last_price_date')} AS price_ts
+				FROM receiving_addresses 
+				WHERE device_address=? AND user_address=? AND reddit_user_id=?`,
+				[device_address, userInfo.user_address, userInfo.reddit_user_id],
+				(rows) => {
+					if (rows.length > 0) {
+						let row = rows[0];
+						resolve({receiving_address: row.receiving_address, post_publicly: row.post_publicly});
+						return unlock();
+					}
+	
+					headlessWallet.issueNextMainAddress((receiving_address) => {
+						db.query(
+							`INSERT INTO receiving_addresses 
+							(device_address, user_address, reddit_user_id, receiving_address, price, last_price_date) 
+							VALUES(?,?,?,?,?,${db.getNow()})`,
+							[device_address, userInfo.user_address, userInfo.reddit_user_id, receiving_address, conf.priceInBytes],
+							() => {
+								resolve({receiving_address: receiving_address, post_publicly: null});
+								unlock();
+							}
+						);
+					});
 				}
-
-				headlessWallet.issueNextMainAddress((receiving_address) => {
-					db.query(
-						`INSERT INTO receiving_addresses 
-						(device_address, user_address, receiving_address) 
-						VALUES(?,?,?)`,
-						[device_address, userInfo.user_address, receiving_address],
-						() => {
-							callback(receiving_address);
-							unlock();
-						}
-					);
-				});
-			}
-		);
+			);
+		});
 	});
 }

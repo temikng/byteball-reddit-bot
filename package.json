@@ -22,12 +22,13 @@
   },
   "homepage": "https://github.com/temikng/byteball-reddit-bot#readme",
   "dependencies": {
+    "byteball-witness": "git+https://github.com/byteball/byteball-witness.git",
     "byteballcore": "git+https://github.com/byteball/byteballcore.git",
     "emailjs": "1.0.10",
     "express": "4.16.3",
     "headless-byteball": "git+https://github.com/byteball/headless-byteball.git",
-    "byteball-witness": "git+https://github.com/byteball/byteball-witness.git",
     "passport": "0.4.0",
-    "passport-reddit": "0.2.4"
+    "passport-reddit": "0.2.4",
+    "request": "2.85.0"
   }
 }

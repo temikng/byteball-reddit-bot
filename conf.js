@@ -12,7 +12,7 @@ exports.storage = 'sqlite';
 //exports.socksPort = 9050;
 
 exports.hub = 'byteball.org/bb';
-exports.deviceName = 'Real name attestation bot';
+exports.deviceName = 'Reddit attestation bot';
 exports.permanent_pairing_secret = '0000';
 exports.control_addresses = [''];
 exports.payout_address = 'WHERE THE MONEY CAN BE SENT TO';
@@ -32,17 +32,17 @@ exports.bRunWitness = false;
 exports.THRESHOLD_DISTANCE = 20;
 exports.MIN_AVAILABLE_WITNESSINGS = 100;
 
-exports.priceInUSD = 8;
-exports.referralRewardInUSD = 20;
+exports.priceInBytes = 4000;
 
 // set this in conf.json
 exports.salt = null;
 
 // Reddit application options
+exports.redditAuthURL = 'http://127.0.0.1:3000/auth';
 exports.reddit = {
-  clientID: null,
-  clientSecret: null,
-  callbackURL: null
+  clientID: '--use-reddit-consumer-key--',
+  clientSecret: '--use-reddit-consumer-secret--',
+  callbackURL: 'http://127.0.0.1:3000/auth/callback'
 };
 
 // Reddit karma rewards sequence { karma: usd }
@@ -50,7 +50,7 @@ exports.rewardInUSD = {
   0: 0,
   1000: 5,
   10000: 10,
-}
+};
 
 // web server
 exports.web = {

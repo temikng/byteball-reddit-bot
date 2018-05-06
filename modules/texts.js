@@ -31,51 +31,61 @@ exports.weHaveReferralProgram = () => {
 	].join('');
 };
 
-exports.insertMyAddress = () => {
-	if (conf.bRequireRealName) {
-		let arrNamesOfRequiredKeys = [];
-		let objMap = conf.objMapRequiredVIPersonalDataWithProfile;
-		for (let key in objMap) {
-			if (!objMap.hasOwnProperty(key)) continue;
-			arrNamesOfRequiredKeys.push(objMap[key].name);
-		}
-		return [
-			'To attest your accredited investor status, your real name has to be attested first and we\'ll require to provide your private profile, ',
-			`which includes your ${arrNamesOfRequiredKeys.join(', ')}.\n`,
-			'If you are not attested yet, find "Real name attestation bot" in the Bot Store and have your address attested.\n',
-			`If you are already attested, click this link to reveal your private profile to us: [profile request](profile-request:${conf.arrRequiredPersonalData.join(',')}). `,
-			'We\'ll keep your personal data private and only send it to VerifyInvestor.com service.'
-		].join('');
-	} else {
-		return [
-			"Please send me your address that you wish to attest (click ... and Insert my address).\n",
-			"Make sure you are in a single-address wallet. ",
-			"If you don't have a single-address wallet, ",
-			"please add one (burger menu, add wallet) and fund it with the amount sufficient to pay for the attestation."
-		].join('')
-	}
-};
-
-exports.requireInsertProfileData = () => {
-	return 'You have to provide your attested profile, just Byteball address is not enough.';
-};
-exports.requireInsertBBAddress = () => {
-	return 'Private profile is not required';
-};
-
-exports.wrongRealNameAttestorAddress = (attestor_address) => {
+exports.allowAccessToRedditAccount = (state) => {
 	return [
-		`We don't recognize the attestor ${attestor_address} who attested your profile.\n`,
-		`The only trusted attestors are: ${conf.arrRealNameAttestors.join(', ')}`
+		`: ${conf.redditAuthURL}?state=${state}`
 	].join('');
 };
 
-exports.missingProfileFields = (arrMissingFields) => {
-	return `These fields are missing in your profile: ${arrMissingFields.join(', ')}`
+exports.confirmRequestRedditAccount = (name) => {
+	return [
+		`Please, confirm that it is you reddit account: ${name}\n\n`,
+		"[yes](command:yes)\t[no](command:no)"
+	].join('');
 };
 
-exports.goingToAttestAddress = (address) => {
-	return `Thanks. ${conf.bRequireRealName?'Saved your personal data.\n':''}Going to attest your address: ${address}.`;
+exports.confirmedRequestRedditAccount = (name) => {
+	return [
+		`Your reddit account: ${name}, was confirmed, and will be used for attestation.`
+	].join('');
+};
+exports.unconfirmedRequestRedditAccount = (name) => {
+	return [
+		`Reddit account: ${name}, was unconfirmed.`
+	].join('');
+};
+
+exports.insertMyAddress = () => {
+	return [
+		"Please send me your address that you wish to attest (click ... and Insert my address).\n",
+		"Make sure you are in a single-address wallet. ",
+		"If you don't have a single-address wallet, ",
+		"please add one (burger menu, add wallet) and fund it with the amount sufficient to pay for the attestation."
+	].join('');
+};
+exports.privateOrPublic = () => {
+	return [
+		"Store your reddit account data privately in your wallet (recommended) or post it publicly?\n\n",
+		"[private](command:private)\t[public](command:public)"
+	].join('');
+};
+
+exports.privateChoose = () => {
+	return [
+		"Your reddit account data will be kept private and stored in your wallet.\n",
+		"Click [public](command:public) now if you changed your mind."
+	].join('');
+};
+
+exports.publicChoose = () => {
+	return [
+		"Your reddit account data will be posted into the public database and will be available for everyone.\n",
+		"Click [private](command:private) now if you changed your mind."
+	].join('');
+};
+
+exports.pleasePayOrPrivacy = (receivingAddress, price, postPublicly) => {
+	return (postPublicly === null) ? exports.privateOrPublic() : exports.pleasePay(receivingAddress, price);
 };
 
 exports.pleasePay = (receivingAddress, price, user_address) => {
@@ -95,34 +105,6 @@ exports.receivedYourPayment = (amount) => {
 
 exports.paymentIsConfirmed = () => {
 	return "Your payment is confirmed.";
-};
-
-exports.clickInvestorLink = (redirectUrl) => {
-	return [
-		`Please click this link to grant us access to your verification status on VerifyInvestor.com: ${redirectUrl}\n`,
-		'If you already allowed access, please wait while we check it.'
-	].join('');
-};
-
-exports.receivedAuthToUserAccount = () => {
-	return 'We received access to updates about your verification status at VerifyInvestor.com, and submitted a verification request.';
-};
-
-exports.verificationStarted = () => {
-	return [
-		'Please check your dashboard at VerifyInvestor.com and complete the pending verification, we\'ll update you about the status.',
-	].join('');
-};
-
-exports.waitingWhileVerificationUnderWay = () => {
-	return [
-		'Your verification is under way.\n',
-		'If you have already completed the verification, please wait we check its result.'
-	].join('');
-};
-
-exports.verificationRequestCompletedWithStatus = (statusDescription) => {
-	return `Verification request completed with status: "${statusDescription}".`;
 };
 
 exports.inAttestation = () => {
