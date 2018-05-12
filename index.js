@@ -94,18 +94,18 @@ function handleWalletReady() {
 		headlessWallet.issueOrSelectAddressByIndex(0, 0, (address1) => {
 			console.log('== investor attestation address: ' + address1);
 			redditAttestation.redditAttestorAddress = address1;
-			reward.distributionAddress = address1;
+			// reward.distributionAddress = address1;
 
-			// headlessWallet.issueOrSelectAddressByIndex(0, 1, (address2) => {
-				// console.log('== distribution address: ' + address2);
-				// reward.distributionAddress = address2;
+			headlessWallet.issueOrSelectAddressByIndex(0, 1, (address2) => {
+				console.log('== distribution address: ' + address2);
+				reward.distributionAddress = address2;
 
         server.start();
 
 				setInterval(redditAttestation.retryPostingAttestations, 10*1000);
 				setInterval(reward.retrySendingRewards, 10*1000);
 				setInterval(moveFundsToAttestorAddresses, 10*1000);
-			// });
+			});
 		});
 	});
 }
