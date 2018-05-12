@@ -5,28 +5,37 @@ const objectHash = require('byteballcore/object_hash.js');
 const db = require('byteballcore/db');
 const notifications = require('./notifications');
 const texts = require('./texts');
+const userData = require('./user-data');
 
 function retryPostingAttestations() {
 	db.query(
 		`SELECT 
-			transaction_id, vi_user_id,
-			user_address
+			transaction_id, 
+			user_address, reddit_user_id, post_publicly
 		FROM attestation_units
 		JOIN transactions USING(transaction_id)
 		JOIN receiving_addresses USING(receiving_address)
-		WHERE attestation_unit IS NULL`,
+		WHERE attestation_unit IS NULL AND post_publicly=0`,
 		(rows) => {
+			console.error('retryPostingAttestations', rows.length);
 			rows.forEach((row) => {
-				let	attestation = getAttestationPayload(row.user_address, row.vi_user_id);
-				// console.error('retryPostingAttestations: ' + row.transaction_id);
-				// console.error(attestation);
-				postAndWriteAttestation(row.transaction_id, exports.redditAttestorAddress, attestation);
+
+				userData.getRedditUserDataById(row.reddit_user_id, (rUserData) => {
+					console.error('getRedditUserDataById', rUserData);
+					let	[attestation, src_profile] = getAttestationPayloadAndSrcProfile(
+						row.user_address,
+						rUserData,
+						row.post_publicly
+					);
+					postAndWriteAttestation(row.transaction_id, exports.redditAttestorAddress, attestation, src_profile);
+				});
+				
 			});
 		}
 	);
 }
 
-function postAndWriteAttestation(transaction_id, attestor_address, attestation_payload, callback) {
+function postAndWriteAttestation(transaction_id, attestor_address, attestation_payload, src_profile, callback) {
 	if (!callback) callback = function () {};
 	const mutex = require('byteballcore/mutex.js');
 	mutex.lock(['tx-'+transaction_id], (unlock) => {
@@ -57,7 +66,18 @@ function postAndWriteAttestation(transaction_id, attestor_address, attestation_p
 						[unit, transaction_id],
 						() => {
 							let device = require('byteballcore/device.js');
-							let text = `Now you are attested investor, see the attestation unit: https://explorer.byteball.org/#${unit}`;
+							let text = "Now your email is attested, see the attestation unit: https://explorer.byteball.org/#"+unit;
+
+							if (src_profile) {
+								let private_profile = {
+									unit: unit,
+									payload_hash: objectHash.getBase64Hash(attestation_payload),
+									src_profile: src_profile
+								};
+								let base64PrivateProfile = Buffer.from(JSON.stringify(private_profile)).toString('base64');
+								text += "\n\nClick here to save the profile in your wallet: [private profile](profile:"+base64PrivateProfile+"). " +
+									"You will be able to use it to access the services that require a proven email address.";
+							}
 
 							text += "\n\n" + texts.weHaveReferralProgram();
 							device.sendMessageToDevice(row.device_address, 'text', text);
@@ -122,17 +142,57 @@ function postAttestation(attestor_address, payload, onDone) {
 	composer.composeJoint(params);
 }
 
-function getAttestationPayload(user_address, vi_user_id) {
-	return {
-		address: user_address,
-		profile: {
-			vi_user_id,
-			investor: 1
-		}
+function getUserId(profile){
+	return objectHash.getBase64Hash([profile, conf.salt]);
+}
+
+function getAttestationPayloadAndSrcProfile(user_address, data, bPublic) {
+	let profile = {
+		name: data.reddit_name,
+		karma: data.reddit_link_karma,
+		created: data.reddit_created
 	};
+	if (bPublic) {
+		profile.user_id = getUserId(profile);
+		let attestation = {
+			address: user_address,
+			profile: profile
+		};
+		return [attestation, null];
+	}  else {
+		let [public_profile, src_profile] = hideProfile(profile);
+		let attestation = {
+			address: user_address,
+			profile: public_profile
+		};
+		return [attestation, src_profile];
+	}
+}
+
+function hideProfile(profile) {
+	let composer = require('byteballcore/composer.js');
+	let hidden_profile = {};
+	let src_profile = {};
+
+	for (let field in profile) {
+		if (!profile.hasOwnProperty(field)) continue;
+		let value = profile[field];
+		let blinding = composer.generateBlinding();
+		// console.error(`hideProfile: ${field}, ${value}, ${blinding}`);
+		let hidden_value = objectHash.getBase64Hash([value, blinding]);
+		hidden_profile[field] = hidden_value;
+		src_profile[field] = [value, blinding];
+	}
+	let profile_hash = objectHash.getBase64Hash(hidden_profile);
+	let user_id = getUserId(profile);
+	let public_profile = {
+		profile_hash: profile_hash,
+		user_id: user_id
+	};
+	return [public_profile, src_profile];
 }
 
 exports.redditAttestorAddress = null;
-exports.getAttestationPayload = getAttestationPayload;
+exports.getAttestationPayloadAndSrcProfile = getAttestationPayloadAndSrcProfile;
 exports.postAndWriteAttestation = postAndWriteAttestation;
 exports.retryPostingAttestations = retryPostingAttestations;

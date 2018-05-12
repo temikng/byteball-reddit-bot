@@ -8,78 +8,92 @@ const conf = require('byteballcore/conf');
  */
 exports.greeting = () => {
 	return [
-		"Here you can attest yourself as accredited investor.  This will allow you to invest in ICOs that are available for accredited investors only.\n",
-		"A proof of attestation of your Byteball address will be posted publicly on the distributed ledger.  Your name will not be published.\n\n",
+		"Here you can attest your Reddit account.\n\n",
 
-		`The price of attestation is $${conf.priceInUSD.toLocaleString([], {minimumFractionDigits: 2})}. `,
+		`The price of attestation is ${conf.priceInBytes/1e9} GB. `,
 		"The payment is nonrefundable even if the attestation fails for any reason.\n\n",
 
-		'After payment, you will receive a link to VerifyInvestor.com service ',
-		'that you will use to prove your accredited status. ',
+		'You need to grand access to your Reddit account data.\n\n',
 
 		`After you successfully complete attestation for the first time, `,
-		`you receive a $${conf.rewardInUSD.toLocaleString([], {minimumFractionDigits: 2})} reward in Bytes.`
+		`you receive a reward in Bytes depending on your Reddit account karma.`
 	].join('');
 };
 
+exports.receiveRewardInUSD = (rewardInUSD) => {
+	return [
+		`After you successfully complete attestation for the first time, `,
+		`you receive a $${rewardInUSD.toLocaleString([], {minimumFractionDigits: 2})} reward in Bytes.`
+	].join('');
+}
+
 exports.weHaveReferralProgram = () => {
 	return [
-		"Remember, we have a referral program: " +
-		"if you send Bytes from your attested address to a new user who is not attested yet, " +
-		"and he/she uses those Bytes to pay for a successful attestation, " +
-		`you receive a $${conf.referralRewardInUSD.toLocaleString([], {minimumFractionDigits: 2})} reward in Bytes.`
+		"Remember, we have a referral program: ",
+		"if you send Bytes from your attested address to a new user who is not attested yet, ",
+		"and he/she uses those Bytes to pay for a successful attestation, ",
+		`you receive a reward in Bytes depending on his/her Reddit account karma.`
 	].join('');
 };
 
 exports.allowAccessToRedditAccount = (state) => {
 	return [
-		`: ${conf.redditAuthURL}?state=${state}`
+		`Please, click the URL: ${conf.redditAuthURL}?state=${state}\n`,
+		'To grand access to your Reddit account data.',
 	].join('');
+};
+
+exports.usedTheSameRedditAccount = (name) => {
+	return `You are already using the Reddit account: ${name}`;
 };
 
 exports.confirmRequestRedditAccount = (name) => {
 	return [
-		`Please, confirm that it is you reddit account: ${name}\n\n`,
+		`Please, confirm that it is you Reddit account: ${name}\n\n`,
 		"[yes](command:yes)\t[no](command:no)"
 	].join('');
 };
 
 exports.confirmedRequestRedditAccount = (name) => {
 	return [
-		`Your reddit account: ${name}, was confirmed, and will be used for attestation.`
+		`Your Reddit account: ${name}, was confirmed, `, 
+		'and will be used for attestation.'
 	].join('');
 };
 exports.unconfirmedRequestRedditAccount = (name) => {
-	return [
-		`Reddit account: ${name}, was unconfirmed.`
-	].join('');
+	return `Reddit account: ${name}, was unconfirmed.`;
 };
 
 exports.insertMyAddress = () => {
 	return [
-		"Please send me your address that you wish to attest (click ... and Insert my address).\n",
+		"Please, send me your address that you wish to attest (click ... and Insert my address).\n",
 		"Make sure you are in a single-address wallet. ",
 		"If you don't have a single-address wallet, ",
 		"please add one (burger menu, add wallet) and fund it with the amount sufficient to pay for the attestation."
 	].join('');
 };
+
+exports.goingToAttestAddress = (address) => {
+	return `Thanks, going to attest your BB address: ${address}.`;
+};
+
 exports.privateOrPublic = () => {
 	return [
-		"Store your reddit account data privately in your wallet (recommended) or post it publicly?\n\n",
+		"Store your Reddit account data privately in your wallet (recommended) or post it publicly?\n\n",
 		"[private](command:private)\t[public](command:public)"
 	].join('');
 };
 
 exports.privateChoose = () => {
 	return [
-		"Your reddit account data will be kept private and stored in your wallet.\n",
+		"Your Reddit account data will be kept private and stored in your wallet.\n",
 		"Click [public](command:public) now if you changed your mind."
 	].join('');
 };
 
 exports.publicChoose = () => {
 	return [
-		"Your reddit account data will be posted into the public database and will be available for everyone.\n",
+		"Your Reddit account data will be posted into the public database and will be available for everyone.\n",
 		"Click [private](command:private) now if you changed your mind."
 	].join('');
 };
@@ -108,22 +122,22 @@ exports.paymentIsConfirmed = () => {
 };
 
 exports.inAttestation = () => {
-	return `Verification request was confirmed. You are in attestation. Please wait.`;
+	return `You are in attestation. Please wait.`;
 };
 
-exports.attestedSuccessFirstTimeBonus = (rewardInBytes) => {
+exports.attestedSuccessFirstTimeBonus = (rewardInUSD, rewardInBytes) => {
 	return [
 		"You requested an attestation for the first time and will receive a welcome bonus ",
-		`of $${conf.rewardInUSD.toLocaleString([], {minimumFractionDigits: 2})} `,
+		`of $${rewardInUSD.toLocaleString([], {minimumFractionDigits: 2})} `,
 		`(${(rewardInBytes/1e9).toLocaleString([], {maximumFractionDigits: 9})} GB) `,
 		"from Byteball distribution fund."
-	].join('')
+	].join('');
 };
 
-exports.referredUserBonus = (referralRewardInBytes) => {
+exports.referredUserBonus = (referralRewardInUSD, referralRewardInBytes) => {
 	return [
 		"You referred a user who has just verified his identity and you will receive a reward ",
-		`of $${conf.referralRewardInUSD.toLocaleString([], {minimumFractionDigits: 2})} `,
+		`of $${referralRewardInUSD.toLocaleString([], {minimumFractionDigits: 2})} `,
 		`(${(referralRewardInBytes/1e9).toLocaleString([], {maximumFractionDigits: 9})} GB) `,
 		"from Byteball distribution fund.\n",
 		"Thank you for bringing in a new byteballer, the value of the ecosystem grows with each new user!"
@@ -155,6 +169,10 @@ exports.errorConfigSmtp = () => {
 
 exports.errorConfigEmail = () => {
 	return `please specify admin_email and from_email in your ${desktopApp.getAppDataDir()}/conf.json\n`;
+};
+
+exports.errorConfigSalt = () => {
+	return `please specify salt in your ${desktopApp.getAppDataDir()}/conf.json\n`;
 };
 
 exports.errorConfigVerifyInvestorToken = () => {

@@ -32,20 +32,20 @@ exports.bRunWitness = false;
 exports.THRESHOLD_DISTANCE = 20;
 exports.MIN_AVAILABLE_WITNESSINGS = 100;
 
-exports.priceInBytes = 4000;
+exports.priceInBytes = 3000;
 
 // set this in conf.json
 exports.salt = null;
 
 // Reddit application options
-exports.redditAuthURL = 'http://127.0.0.1:3000/auth';
+exports.redditAuthURL = 'http://127.0.0.1:8080/auth';
 exports.reddit = {
   clientID: '--use-reddit-consumer-key--',
   clientSecret: '--use-reddit-consumer-secret--',
-  callbackURL: 'http://127.0.0.1:3000/auth/callback'
+  callbackURL: 'http://127.0.0.1:8080/auth/callback'
 };
 
-// Reddit karma rewards sequence { karma: usd }
+// Reddit karma rewards sequence { karma(from): usd }
 exports.rewardInUSD = {
   0: 0,
   1000: 5,

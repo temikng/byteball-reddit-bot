@@ -1,29 +1,38 @@
 CREATE TABLE reddit_users (
 	reddit_user_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
 	reddit_name CHAR(255) NOT NULL,
-	reddit_link_karma INTEGER NOT NULL,
 	reddit_created TIMESTAMP NOT NULL,
-	reddit_data TEXT NULL, -- json
+	user_data_version INTEGER NOT NULL DEFAULT 1,
 	creation_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE reddit_users_data (
+	reddit_user_id INTEGER NOT NULL,
+	user_data_version INTEGER NOT NULL DEFAULT 1,
+	reddit_link_karma INTEGER NOT NULL,
+	reddit_data TEXT NULL, -- json
+	creation_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (reddit_user_id, user_data_version),
+	FOREIGN KEY (reddit_user_id) REFERENCES reddit_users(reddit_user_id)
 );
 
 CREATE TABLE users (
 	device_address CHAR(33) NOT NULL PRIMARY KEY,
 	user_address CHAR(32) NULL,
-	reddit_user_id CHAR(32) NULL,
-	request_reddit_user_id CHAR(32) NULL,
+	reddit_user_id INTEGER NULL,
+	request_reddit_user_id INTEGER NULL,
 	creation_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	FOREIGN KEY (device_address) REFERENCES correspondent_devices(device_address),
-	FOREIGN KEY (reddit_user_id) REFERENCES reddit_users(reddit_user_id)
+	FOREIGN KEY (reddit_user_id) REFERENCES reddit_users(reddit_user_id),
+	FOREIGN KEY (request_reddit_user_id) REFERENCES reddit_users(reddit_user_id)
 );
 
 CREATE TABLE receiving_addresses (
 	receiving_address CHAR(32) NOT NULL PRIMARY KEY,
 	device_address CHAR(33) NOT NULL,
 	user_address CHAR(32) NOT NULL,
-	reddit_user_id CHAR(32) NOT NULL,
+	reddit_user_id INTEGER NOT NULL,
 	creation_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	post_publicly TINYINT NULL DEFAULT 1,
+	post_publicly TINYINT NULL,
 	price INT NULL,
 	last_price_date TIMESTAMP NULL,
 	UNIQUE (device_address, user_address),
@@ -73,7 +82,7 @@ CREATE TABLE rejected_payments (
 CREATE TABLE reward_units (
 	transaction_id INTEGER NOT NULL PRIMARY KEY,
 	user_address CHAR(32) NOT NULL UNIQUE,
-	reddit_user_id CHAR(32) NOT NULL UNIQUE,
+	reddit_user_id INTEGER NOT NULL UNIQUE,
 	user_id CHAR(44) NOT NULL UNIQUE,
 	reward INT NOT NULL,
 	reward_unit CHAR(44) NULL UNIQUE,
@@ -85,10 +94,10 @@ CREATE TABLE reward_units (
 CREATE TABLE referral_reward_units (
 	transaction_id INTEGER NOT NULL PRIMARY KEY,
 	user_address CHAR(32) NOT NULL,
-	reddit_user_id CHAR(32) NOT NULL UNIQUE,
+	reddit_user_id INTEGER NOT NULL UNIQUE,
 	user_id CHAR(44) NOT NULL,
 	new_user_id CHAR(44) NOT NULL UNIQUE,
-	new_reddit_user_id CHAR(32) NOT NULL UNIQUE,
+	new_reddit_user_id INTEGER NOT NULL UNIQUE,
 	new_user_address CHAR(44) NOT NULL UNIQUE,
 	reward INT NOT NULL,
 	reward_unit CHAR(44) NULL UNIQUE,

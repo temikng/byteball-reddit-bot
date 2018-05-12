@@ -5,6 +5,8 @@ const db = require('byteballcore/db');
 const notifications = require('./notifications');
 const redditAttestation = require('./reddit-attestation');
 
+const MAX_REFERRAL_DEPTH = 5;
+
 exports.distributionAddress = null;
 
 function sendReward(user_address, reward, device_address, onDone) {
@@ -90,7 +92,7 @@ function retrySendingRewards() {
 	retrySendingRewardsOfType('referral');
 }
 
-function findReferrer(payment_unit, handleReferrer) {
+function findReferrer(payment_unit, user_address, handleReferrer) {
 	let assocMcisByAddress = {};
 	let depth = 0;
 
@@ -109,21 +111,26 @@ function findReferrer(payment_unit, handleReferrer) {
 			[arrUnits],
 			(rows) => {
 				rows.forEach((row) => {
+					if (row.address === user_address) // no self-refferrers
+						return;
 					if (!assocMcisByAddress[row.address] || assocMcisByAddress[row.address] < row.main_chain_index)
 						assocMcisByAddress[row.address] = row.main_chain_index;
 				});
 				let arrSrcUnits = rows.map((row) => row.src_unit);
-				(depth < conf.MAX_REFERRAL_DEPTH) ? goBack(arrSrcUnits) : selectReferrer();
+				(depth < MAX_REFERRAL_DEPTH) ? goBack(arrSrcUnits) : selectReferrer();
 			}
 		);
 	}
 
+	// the referrer doesn't have to have a whitelisted email
 	function selectReferrer() {
 		let arrAddresses = Object.keys(assocMcisByAddress);
+		if (arrAddresses.length === 0)
+			return handleReferrer();
 		console.log('ancestor addresses: '+arrAddresses.join(', '));
 		db.query(
 			`SELECT 
-				address, user_address, device_address, payload, app
+				address, user_address, reddit_user_id, device_address, payload, app
 			FROM attestations
 			JOIN messages USING(unit, message_index)
 			JOIN attestation_units ON unit=attestation_unit
@@ -134,13 +141,13 @@ function findReferrer(payment_unit, handleReferrer) {
 				AND transactions.payment_unit!=?`,
 			[redditAttestation.redditAttestorAddress, payment_unit],
 			(rows) => {
-				if (rows.length === 0) {
+				if (rows.length === 0){
 					console.log("no referrers for payment unit "+payment_unit);
 					return handleReferrer();
 				}
 
 				let max_mci = 0;
-				let best_row;
+				let best_user_id, best_row;
 				rows.forEach((row) => {
 					if (row.app !== 'attestation') {
 						throw Error(`unexpected app ${row.app} for payment ${payment_unit}`);
@@ -154,17 +161,23 @@ function findReferrer(payment_unit, handleReferrer) {
 						throw Error(`different addresses: address ${row.address}, payload ${row.user_address} for payment ${payment_unit}`);
 					}
 
+					let user_id = payload.profile.user_id;
+					if (!user_id) {
+						throw Error("no user_id for payment " + payment_unit);
+					}
+
 					let mci = assocMcisByAddress[row.address];
 					if (mci > max_mci) {
 						max_mci = mci;
 						best_row = row;
+						best_user_id = user_id;
 					}
 				});
-				if (!best_row) {
+				if (!best_row || !best_user_id) {
 					throw Error("no best for payment " + payment_unit);
 				}
 
-				handleReferrer(best_row.user_address, best_row.device_address);
+				handleReferrer(best_user_id, best_row.user_address, best_row.reddit_user_id, best_row.device_address);
 			}
 		);
 	}

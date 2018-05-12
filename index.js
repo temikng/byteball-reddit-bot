@@ -11,6 +11,7 @@ const notifications = require('./modules/notifications');
 const conversion = require('./modules/conversion.js');
 const redditAttestation = require('./modules/reddit-attestation.js');
 const reward = require('./modules/reward.js');
+const userData = require('./modules/user-data');
 const server = require('./modules/server');
 
 /**
@@ -63,11 +64,12 @@ function handleWalletReady() {
 	 * check if database tables is created
 	 */
 	let arrTableNames = [
-		'users','reddit_users','receiving_addresses','transactions','attestation_units',
+		'reddit_users','reddit_users_data','users','receiving_addresses','transactions','attestation_units',
 		'rejected_payments','reward_units','referral_reward_units'
 	];
 	db.query("SELECT name FROM sqlite_master WHERE type='table' AND NAME IN (?)", [arrTableNames], (rows) => {
 		if (rows.length !== arrTableNames.length) {
+			console.error(rows);
 			error += texts.errorInitSql();
 		}
 
@@ -79,7 +81,10 @@ function handleWalletReady() {
 		}
 		if (!conf.admin_email || !conf.from_email) {
 			error += texts.errorConfigEmail();
-    }
+		}
+		if (!conf.salt) {
+			error += texts.errorConfigSalt();
+		}
     server.checkConfig(error);
 
 		if (error) {
@@ -98,10 +103,8 @@ function handleWalletReady() {
         server.start();
 
 				// setInterval(redditAttestation.retryPostingAttestations, 10*1000);
-				// setInterval(reward.retrySendingRewards, 10*1000);
-				setInterval(moveFundsToAttestorAddresses, 10*1000);
-				// setInterval(verifyInvestor.retryCheckAuthAndPostVerificationRequest, 10*1000);
-				// setInterval(pollVerificationResults, 60*1000);
+				setInterval(reward.retrySendingRewards, 10*1000);
+				setInterval(moveFundsToAttestorAddresses, 20*1000);
 			// });
 		});
 	});
@@ -232,20 +235,109 @@ function handleTransactionsBecameStable(arrUnits) {
 	const device = require('byteballcore/device.js');
 	db.query(
 		`SELECT 
-			transaction_id, device_address
+			transaction_id, payment_unit,
+			device_address, user_address, 
+			reddit_user_id, post_publicly
 		FROM transactions
 		JOIN receiving_addresses USING(receiving_address)
 		WHERE payment_unit IN(?)`,
 		[arrUnits],
 		(rows) => {
 			rows.forEach((row) => {
+				const {
+					transaction_id, payment_unit,
+					device_address, user_address, 
+					reddit_user_id, post_publicly
+				} = row;
+
 				db.query(
 					`UPDATE transactions 
 					SET confirmation_date=${db.getNow()}, is_confirmed=1 
 					WHERE transaction_id=?`,
-					[row.transaction_id],
+					[transaction_id],
 					() => {
-						device.sendMessageToDevice(row.device_address, 'text', texts.paymentIsConfirmed());
+						device.sendMessageToDevice(device_address, 'text', texts.paymentIsConfirmed());
+
+						userData.getRedditUserDataById(reddit_user_id, (rUserData) => {
+
+							db.query(
+								`INSERT ${db.getIgnore()} INTO attestation_units 
+								(transaction_id) 
+								VALUES (?)`,
+								[transaction_id],
+								() => {
+	
+									let	[attestation, src_profile] = redditAttestation.getAttestationPayloadAndSrcProfile(
+										user_address,
+										rUserData,
+										post_publicly
+									);
+	
+									redditAttestation.postAndWriteAttestation(
+										transaction_id,
+										redditAttestation.redditAttestorAddress,
+										attestation,
+										src_profile
+									);
+	
+									if (conf.rewardInUSD) {
+										const rewardInUSD = getRewardInUSDByKarma(rUserData.reddit_link_karma);
+										if (!rewardInUSD) {
+											return;
+										}
+
+										let rewardInBytes = conversion.getPriceInBytes(rewardInUSD);
+										db.query(
+											`INSERT ${db.getIgnore()} INTO reward_units
+											(transaction_id, user_address, reddit_user_id, user_id, reward)
+											VALUES (?,?,?,?,?)`,
+											[transaction_id, user_address, reddit_user_id, attestation.profile.user_id, rewardInBytes],
+											(res) => {
+												console.error(`reward_units insertId: ${res.insertId}, affectedRows: ${res.affectedRows}`);
+												if (!res.affectedRows) {
+													return console.log(`duplicate user_address or user_id: ${user_address}, ${attestation.profile.user_id}`);
+												}
+	
+												device.sendMessageToDevice(device_address, 'text', texts.attestedSuccessFirstTimeBonus(rewardInUSD, rewardInBytes));
+												reward.sendAndWriteReward('attestation', transaction_id);
+	
+												reward.findReferrer(payment_unit, user_address, (referring_user_id, referring_user_address, referring_reddit_user_id, referring_user_device_address) => {
+													if (!referring_user_address) {
+														return console.log("no referring user for " + user_address);
+													}
+	
+													db.query(
+														`INSERT ${db.getIgnore()} INTO referral_reward_units
+														(transaction_id, user_address, reddit_user_id, user_id, new_user_address, new_reddit_user_id, new_user_id, reward)
+														VALUES (?, ?,?,?, ?,?,?, ?)`,
+														[transaction_id,
+															referring_user_address, referring_reddit_user_id, referring_user_id,
+															user_address, reddit_user_id, attestation.profile.user_id,
+															rewardInBytes],
+														(res) => {
+															console.log(`referral_reward_units insertId: ${res.insertId}, affectedRows: ${res.affectedRows}`);
+															if (!res.affectedRows) {
+																return notifications.notifyAdmin(
+																	"duplicate referral reward",
+																	`referral reward for new user ${user_address} ${attestation.profile.user_id} already written`
+																);
+															}
+	
+															device.sendMessageToDevice(referring_user_device_address, 'text', texts.referredUserBonus(rewardInUSD, rewardInBytes));
+															reward.sendAndWriteReward('referral', transaction_id);
+														}
+													);
+												});
+	
+											}
+										);
+									} // if conf.rewardInUSD
+	
+								}
+							);
+
+						}); // userData.getRedditUserDataById
+
 					}
 				);
 			});
@@ -255,11 +347,11 @@ function handleTransactionsBecameStable(arrUnits) {
 
 /**
  * scenario for responding to user requests
- * @param from_address
- * @param text
- * @param response
+ * @param {string} from_address
+ * @param {string} text
+ * @param {string} response
  */
-function respond (from_address, text, response = '') {
+function respond(from_address, text, response = '') {
 	const device = require('byteballcore/device.js');
 	const mutex = require('byteballcore/mutex.js');
 	readUserInfo(from_address, (userInfo) => {
@@ -282,7 +374,7 @@ function respond (from_address, text, response = '') {
 								() => {
 									unlock();
 
-									getRedditUserDataById(reqRedditUID, (row) => {
+									userData.getRedditUserDataById(reqRedditUID, (row) => {
 										resolve(texts.confirmedRequestRedditAccount(row.reddit_name) + '\n\n' + texts.insertMyAddress());
 									});
 								}
@@ -299,22 +391,25 @@ function respond (from_address, text, response = '') {
 								() => {
 									unlock();
 
-									getRedditUserDataById(reqRedditUID, (row) => {
-										device.sendMessageToDevice(from_address, 'text', texts.unconfirmedRequestRedditAccount(row.reddit_name));
-										resolve();
+									userData.getRedditUserDataById(reqRedditUID, (row) => {
+										resolve(
+											texts.unconfirmedRequestRedditAccount(row.reddit_name) +
+											'\n\n' +
+											texts.allowAccessToRedditAccount(from_address)
+										);
 									});
 								}
 							);
 						});
 					}
 
-					return getRedditUserDataById(reqRedditUID, (row) => {
+					return userData.getRedditUserDataById(reqRedditUID, (row) => {
 						resolve(texts.confirmRequestRedditAccount(row.reddit_name));
 					});
 				}
 
-				if (!userInfo.reddit_user_id) {		
-					resolve(texts.allowAccessToRedditAccount(userInfo.device_address));
+				if (!userInfo.reddit_user_id) {
+					resolve(texts.allowAccessToRedditAccount(from_address));
 				} else {
 					resolve();
 				}
@@ -345,129 +440,133 @@ function respond (from_address, text, response = '') {
 					return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + redditUserResponse);
 				}
 
-				return checkUserAddress();
-			})
-			.then((userAddressResponse) => {
-				if (userAddressResponse) {
-					return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + userAddressResponse);
-				}
-
-				return readOrAssignReceivingAddress(from_address, userInfo);
-			})
-			.then( ({receiving_address, post_publicly}) => {
-				const price = conf.priceInBytes;
-
-				if (text === 'private' || text === 'public') {
-					post_publicly = (text === 'public') ? 1 : 0;
-					db.query(
-						`UPDATE receiving_addresses 
-						SET post_publicly=? 
-						WHERE device_address=? AND user_address=? AND reddit_user_id=?`,
-						[post_publicly, from_address, userInfo.user_address, userInfo.reddit_user_id]
-					);
-					response += (text === "private") ? texts.privateChoose() : texts.publicChoose();
-				}
-
-				if (post_publicly === null) {
-					return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + texts.privateOrPublic());
-				}
-
-				if (text === 'again') {
-					return device.sendMessageToDevice(
-						from_address,
-						'text',
-						(response ? response + '\n\n' : '') + texts.pleasePay(receiving_address, price) + '\n\n' +
-						((post_publicly === 0) ? texts.privateChoose() : texts.publicChoose())
-					);
-				}
-
-				db.query(
-					`SELECT
-						transaction_id, is_confirmed, received_amount, attestation_date
-					FROM transactions
-					JOIN receiving_addresses USING(receiving_address)
-					LEFT JOIN attestation_units USING(transaction_id)
-					WHERE receiving_address=?
-					ORDER BY transaction_id DESC
-					LIMIT 1`,
-					[receiving_address],
-					(rows) => {
-						/**
-						 * if user didn't pay yet
-						 */
-						if (rows.length === 0) {
-							return device.sendMessageToDevice(
-								from_address,
-								'text',
-								(response ? response + '\n\n' : '') + texts.pleasePayOrPrivacy(receiving_address, price, post_publicly)
-							);
+				checkUserAddress()
+					.then((userAddressResponse) => {
+						if (userAddressResponse) {
+							return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + userAddressResponse);
 						}
 
-						const row = rows[0];
+						readOrAssignReceivingAddress(from_address, userInfo)
+							.then( ({receiving_address, post_publicly}) => {
+								const price = conf.priceInBytes;
 
-						/**
-						 * if user payed, but transaction did not become stable
-						 */
-						if (row.is_confirmed === 0) {
-							return device.sendMessageToDevice(
-								from_address,
-								'text',
-								(response ? response + '\n\n' : '') + texts.receivedYourPayment(row.received_amount)
-							);
-						}
+								if (text === 'private' || text === 'public') {
+									post_publicly = (text === 'public') ? 1 : 0;
+									db.query(
+										`UPDATE receiving_addresses 
+										SET post_publicly=? 
+										WHERE device_address=? AND user_address=? AND reddit_user_id=?`,
+										[post_publicly, from_address, userInfo.user_address, userInfo.reddit_user_id]
+									);
+									response += (text === "private") ? texts.privateChoose() : texts.publicChoose();
+								}
 
-						/**
-						 * reddit account is in attestation
-						 */
-						if (!row.attestation_date) {
-							return device.sendMessageToDevice(
-								from_address,
-								'text',
-								(response ? response + '\n\n' : '') + texts.inAttestation()
-							);
-						}
+								if (post_publicly === null) {
+									return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + texts.privateOrPublic());
+								}
 
-						/**
-						 * no more available commands, reddit account is attested
-						 */
-						return device.sendMessageToDevice(
-							from_address,
-							'text',
-							(response ? response + '\n\n' : '') + texts.alreadyAttested(row.attestation_date)
-						);
+								if (text === 'again') {
+									return device.sendMessageToDevice(
+										from_address,
+										'text',
+										(response ? response + '\n\n' : '') + texts.pleasePay(receiving_address, price) + '\n\n' +
+										((post_publicly === 0) ? texts.privateChoose() : texts.publicChoose())
+									);
+								}
 
-					}
-				);
+								db.query(
+									`SELECT
+										transaction_id, is_confirmed, received_amount, attestation_date
+									FROM transactions
+									JOIN receiving_addresses USING(receiving_address)
+									LEFT JOIN attestation_units USING(transaction_id)
+									WHERE receiving_address=?
+									ORDER BY transaction_id DESC
+									LIMIT 1`,
+									[receiving_address],
+									(rows) => {
+										/**
+										 * if user didn't pay yet
+										 */
+										if (rows.length === 0) {
+											return device.sendMessageToDevice(
+												from_address,
+												'text',
+												(response ? response + '\n\n' : '') + texts.pleasePayOrPrivacy(receiving_address, price, post_publicly)
+											);
+										}
 
+										const row = rows[0];
+
+										/**
+										 * if user payed, but transaction did not become stable
+										 */
+										if (row.is_confirmed === 0) {
+											return device.sendMessageToDevice(
+												from_address,
+												'text',
+												(response ? response + '\n\n' : '') + texts.receivedYourPayment(row.received_amount)
+											);
+										}
+
+										/**
+										 * reddit account is in attestation
+										 */
+										if (!row.attestation_date) {
+											return device.sendMessageToDevice(
+												from_address,
+												'text',
+												(response ? response + '\n\n' : '') + texts.inAttestation()
+											);
+										}
+
+										/**
+										 * no more available commands, reddit account is attested
+										 */
+										return device.sendMessageToDevice(
+											from_address,
+											'text',
+											(response ? response + '\n\n' : '') + texts.alreadyAttested(row.attestation_date)
+										);
+
+									}
+								);
+
+							})
+							.catch(catchRespondError);
+					})
+					.catch(catchRespondError);
 			})
-			.catch((err) => {
-				notifications.notifyAdmin('respond error', err.toString());
-			});
+			.catch(catchRespondError);
 	});
 }
 
+function catchRespondError(err) {
+	notifications.notifyAdmin('respond error', err.toString());
+}
+
 /**
- * get reddit user data by reddit_user_id
- * @param id 
- * @param cb 
+ * get count of usd by reddit account karma value
+ * @param {number} karma
+ * @return {number}
  */
-function getRedditUserDataById(id, cb) {
-	db.query(
-		`SELECT *
-		FROM reddit_users 
-		WHERE reddit_user_id=?`,
-		[id],
-		(rows) => {
-			cb(rows[0]);
+function getRewardInUSDByKarma(karma) {
+	let prevCountKarma = 0;
+	for (let countKarma in conf.rewardInUSD) {
+		if (!conf.rewardInUSD.hasOwnProperty(countKarma)) continue;
+		if (karma < countKarma) {
+			return conf.rewardInUSD[prevCountKarma];
 		}
-	);
+		prevCountKarma = countKarma;
+	}
+	return conf.rewardInUSD[prevCountKarma] || 0;
 }
 
 /**
  * get user's information by device address
  * or create new user, if it's new device address
- * @param device_address
- * @param callback
+ * @param {string} device_address
+ * @param {function} callback
  */
 function readUserInfo(device_address, callback) {
 	db.query(
@@ -489,9 +588,9 @@ function readUserInfo(device_address, callback) {
 
 /**
  * read or assign receiving address
- * @param device_address
- * @param userInfo
- * @return Promise
+ * @param {string} device_address
+ * @param {Object} userInfo
+ * @return {Promise}
  */
 function readOrAssignReceivingAddress(device_address, userInfo) {
 	return new Promise((resolve, reject) => {
