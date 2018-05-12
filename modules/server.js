@@ -21,9 +21,7 @@ passport.use(new RedditStrategy(
       return done( new Error(400) );
     }
 
-    fs.writeFile(path.join(__dirname, '..', 'tmp', Date.now() + '.json'), JSON.stringify(profile, null, 4), (err) => {
-      done(null, profile);
-    });
+    done(null, profile);
 	}
 ));
 
@@ -122,7 +120,7 @@ app.get('/auth/callback', (req, res, next) => {
         });
       }
 
-      const userCreated = new Date(user._json.created * 1000);
+      const userCreated = new Date(user._json.created_utc * 1000);
 
       const device = require('byteballcore/device.js');
       checkAndGetRedditUID()
