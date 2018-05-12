@@ -35,7 +35,7 @@ CREATE TABLE receiving_addresses (
 	post_publicly TINYINT NULL,
 	price INT NULL,
 	last_price_date TIMESTAMP NULL,
-	UNIQUE (device_address, user_address),
+	UNIQUE (device_address, user_address, reddit_user_id),
 	FOREIGN KEY (device_address) REFERENCES correspondent_devices(device_address),
 	FOREIGN KEY (reddit_user_id) REFERENCES reddit_users(reddit_user_id),
 	FOREIGN KEY (receiving_address) REFERENCES my_addresses(address)

@@ -17,11 +17,9 @@ function retryPostingAttestations() {
 		JOIN receiving_addresses USING(receiving_address)
 		WHERE attestation_unit IS NULL AND post_publicly=0`,
 		(rows) => {
-			console.error('retryPostingAttestations', rows.length);
 			rows.forEach((row) => {
 
 				userData.getRedditUserDataById(row.reddit_user_id, (rUserData) => {
-					console.error('getRedditUserDataById', rUserData);
 					let	[attestation, src_profile] = getAttestationPayloadAndSrcProfile(
 						row.user_address,
 						rUserData,

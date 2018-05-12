@@ -102,9 +102,9 @@ function handleWalletReady() {
 
         server.start();
 
-				// setInterval(redditAttestation.retryPostingAttestations, 10*1000);
+				setInterval(redditAttestation.retryPostingAttestations, 10*1000);
 				setInterval(reward.retrySendingRewards, 10*1000);
-				setInterval(moveFundsToAttestorAddresses, 20*1000);
+				setInterval(moveFundsToAttestorAddresses, 10*1000);
 			// });
 		});
 	});
