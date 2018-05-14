@@ -64,7 +64,7 @@ function postAndWriteAttestation(transaction_id, attestor_address, attestation_p
 						[unit, transaction_id],
 						() => {
 							let device = require('byteballcore/device.js');
-							let text = "Now your email is attested, see the attestation unit: https://explorer.byteball.org/#"+unit;
+							let text = "Now your Reddit account is attested, see the attestation unit: https://explorer.byteball.org/#"+unit;
 
 							if (src_profile) {
 								let private_profile = {
@@ -74,7 +74,7 @@ function postAndWriteAttestation(transaction_id, attestor_address, attestation_p
 								};
 								let base64PrivateProfile = Buffer.from(JSON.stringify(private_profile)).toString('base64');
 								text += "\n\nClick here to save the profile in your wallet: [private profile](profile:"+base64PrivateProfile+"). " +
-									"You will be able to use it to access the services that require a proven email address.";
+									"You will be able to use it to access the services that require a proven Reddit account data.";
 							}
 
 							text += "\n\n" + texts.weHaveReferralProgram();

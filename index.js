@@ -256,7 +256,10 @@ function handleTransactionsBecameStable(arrUnits) {
 					WHERE transaction_id=?`,
 					[transaction_id],
 					() => {
-						device.sendMessageToDevice(device_address, 'text', texts.paymentIsConfirmed());
+						device.sendMessageToDevice(device_address, 'text', 
+							texts.paymentIsConfirmed() + '\n\n' +
+							texts.inAttestation()
+						);
 
 						userData.getRedditUserDataById(reddit_user_id, (reddit_user_data) => {
 
@@ -282,6 +285,7 @@ function handleTransactionsBecameStable(arrUnits) {
 	
 									if (conf.rewardInUSD) {
 										const rewardInUSD = getRewardInUSDByKarma(reddit_user_data.reddit_karma);
+										console.error('rewardInUSD', rewardInUSD);
 										if (!rewardInUSD) {
 											return;
 										}
