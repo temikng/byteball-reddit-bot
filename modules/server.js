@@ -49,7 +49,7 @@ app.get('/auth/callback', (req, res, next) => {
   if (error) {
     return next( new Error(422) );
   }
-  checkIncomeState(state, (err, {device_address, reddit_user_id, request_reddit_user_id}) => {
+  checkIncomeState(state, (err, row) => {
     if (err) {
       return next(err);
     }
@@ -59,61 +59,41 @@ app.get('/auth/callback', (req, res, next) => {
         return next(err);
       }
 
-      function checkAndGetRedditUID() {
+      function checkAndGetRedditUserId() {
         return new Promise((resolve, reject) => {
           db.query(
             `SELECT 
               *
             FROM reddit_users
-            JOIN reddit_users_data USING(reddit_user_id, user_data_version)
-            WHERE reddit_name=? AND reddit_created=?`,
-            [user.name, userCreated],
+            WHERE reddit_user_id=?`,
+            [user.id],
             (rows) => {
               if (!rows.length) {
                 return db.query(
                   `INSERT INTO reddit_users
-                  (reddit_name, reddit_created)
-                  VALUES(?,?)`,
-                  [user.name, userCreated],
+                  (reddit_user_id, reddit_name, reddit_karma, reddit_created)
+                  VALUES(?,?,?,?)`,
+                  [user.id, user.name, userKarma, userCreated],
                   (res) => {
-                    const rUID = res.insertId;
-                    db.query(
-                      `INSERT INTO reddit_users_data
-                      (reddit_user_id, reddit_link_karma, reddit_data)
-                      VALUES(?,?,?)`,
-                      [rUID, user.link_karma, JSON.stringify(user)],
-                      (res) => {
-                        resolve({rUID, status: 'new'});
-                      }
-                    );
+                    resolve({reddit_user_id: user.id, status: 'new'});
                   }
                 );
               }
     
               const row = rows[0];
-              const rUID = row.reddit_user_id;
-              if (row.reddit_link_karma !== user.link_karma) {
-                const newVersion = Number(row.user_data_version) + 1;
+              const reddit_user_id = row.reddit_user_id;
+              if (row.reddit_karma !== userKarma) {
                 db.query(
                   `UPDATE reddit_users
-                  SET version=?
+                  SET reddit_karma=?
                   WHERE reddit_user_id=?`,
-                  [newVersion, rUID],
+                  [userKarma, reddit_user_id],
                   (res) => {
-                    const rUID = res.insertId;
-                    db.query(
-                      `INSERT INTO reddit_users_data
-                      (reddit_user_id, user_data_version, reddit_link_karma, reddit_data)
-                      VALUES(?,?,?,?)`,
-                      [rUID, newVersion, user.link_karma, JSON.stringify(user)],
-                      (res) => {
-                        resolve({rUID, status: 'update'});
-                      }
-                    );
+                    resolve({reddit_user_id, status: 'update'});
                   }
                 );
               } else {
-                resolve({rUID, status: 'old'});
+                resolve({reddit_user_id, status: 'old'});
               }
             }
           );
@@ -121,22 +101,29 @@ app.get('/auth/callback', (req, res, next) => {
       }
 
       const userCreated = new Date(user._json.created_utc * 1000);
+      const userKarma = user.link_karma + user.comment_karma;
 
       const device = require('byteballcore/device.js');
-      checkAndGetRedditUID()
-        .then(({rUID, status}) => {
+      checkAndGetRedditUserId()
+        .then(({reddit_user_id, status}) => {
           res.send(`Recieved grand access to your Reddit account: ${user.name}`).end();
 
-          if (status !== 'new' && (reddit_user_id === rUID || request_reddit_user_id === rUID)) {
-            return device.sendMessageToDevice(device_address, 'text', texts.usedTheSameRedditAccount(user.name));
+          if (status !== 'new' && row.reddit_user_id === reddit_user_id) {
+            return device.sendMessageToDevice(row.device_address, 'text', 
+              texts.usedTheSameRedditAccount(user.name) +
+              (!row.user_address ? ('\n\n' + texts.insertMyAddress()) : '')
+            );
           }
     
-          mutex.lock([device_address], (unlock) => {
+          mutex.lock([row.device_address], (unlock) => {
             db.query(
-              `UPDATE users SET request_reddit_user_id=? WHERE device_address=?`,
-              [rUID, device_address],
+              `UPDATE users SET reddit_user_id=? WHERE device_address=?`,
+              [reddit_user_id, row.device_address],
               () => {
-                device.sendMessageToDevice(device_address, 'text', texts.confirmRequestRedditAccount(user.name));
+                device.sendMessageToDevice(row.device_address, 'text', 
+                  texts.gaveAccessRedditAccount(user.name) +
+                  (!row.user_address ? ('\n\n' + texts.insertMyAddress()) : '')
+                );
                 unlock();
               }
             );

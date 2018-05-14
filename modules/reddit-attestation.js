@@ -19,10 +19,10 @@ function retryPostingAttestations() {
 		(rows) => {
 			rows.forEach((row) => {
 
-				userData.getRedditUserDataById(row.reddit_user_id, (rUserData) => {
+				userData.getRedditUserDataById(row.reddit_user_id, (reddit_user_data) => {
 					let	[attestation, src_profile] = getAttestationPayloadAndSrcProfile(
 						row.user_address,
-						rUserData,
+						reddit_user_data,
 						row.post_publicly
 					);
 					postAndWriteAttestation(row.transaction_id, exports.redditAttestorAddress, attestation, src_profile);
@@ -147,7 +147,7 @@ function getUserId(profile){
 function getAttestationPayloadAndSrcProfile(user_address, data, bPublic) {
 	let profile = {
 		name: data.reddit_name,
-		karma: data.reddit_link_karma,
+		karma: data.reddit_karma,
 		created: data.reddit_created
 	};
 	if (bPublic) {

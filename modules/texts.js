@@ -47,21 +47,11 @@ exports.usedTheSameRedditAccount = (name) => {
 	return `You are already using the Reddit account: ${name}`;
 };
 
-exports.confirmRequestRedditAccount = (name) => {
+exports.gaveAccessRedditAccount = (name) => {
 	return [
-		`Please, confirm that it is you Reddit account: ${name}\n\n`,
-		"[yes](command:yes)\t[no](command:no)"
+		`Recieved grand access to your Reddit account: ${name}\n`, 
+		'It will be used for attestation.'
 	].join('');
-};
-
-exports.confirmedRequestRedditAccount = (name) => {
-	return [
-		`Your Reddit account: ${name}, was confirmed, `, 
-		'and will be used for attestation.'
-	].join('');
-};
-exports.unconfirmedRequestRedditAccount = (name) => {
-	return `Reddit account: ${name}, was unconfirmed.`;
 };
 
 exports.insertMyAddress = () => {

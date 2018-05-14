@@ -64,7 +64,7 @@ function handleWalletReady() {
 	 * check if database tables is created
 	 */
 	let arrTableNames = [
-		'reddit_users','reddit_users_data','users','receiving_addresses','transactions','attestation_units',
+		'reddit_users','users','receiving_addresses','transactions','attestation_units',
 		'rejected_payments','reward_units','referral_reward_units'
 	];
 	db.query("SELECT name FROM sqlite_master WHERE type='table' AND NAME IN (?)", [arrTableNames], (rows) => {
@@ -258,7 +258,7 @@ function handleTransactionsBecameStable(arrUnits) {
 					() => {
 						device.sendMessageToDevice(device_address, 'text', texts.paymentIsConfirmed());
 
-						userData.getRedditUserDataById(reddit_user_id, (rUserData) => {
+						userData.getRedditUserDataById(reddit_user_id, (reddit_user_data) => {
 
 							db.query(
 								`INSERT ${db.getIgnore()} INTO attestation_units 
@@ -269,7 +269,7 @@ function handleTransactionsBecameStable(arrUnits) {
 	
 									let	[attestation, src_profile] = redditAttestation.getAttestationPayloadAndSrcProfile(
 										user_address,
-										rUserData,
+										reddit_user_data,
 										post_publicly
 									);
 	
@@ -281,7 +281,7 @@ function handleTransactionsBecameStable(arrUnits) {
 									);
 	
 									if (conf.rewardInUSD) {
-										const rewardInUSD = getRewardInUSDByKarma(rUserData.reddit_link_karma);
+										const rewardInUSD = getRewardInUSDByKarma(reddit_user_data.reddit_karma);
 										if (!rewardInUSD) {
 											return;
 										}
@@ -356,64 +356,10 @@ function respond(from_address, text, response = '') {
 	const mutex = require('byteballcore/mutex.js');
 	readUserInfo(from_address, (userInfo) => {
 
-		function checkRedditUser() {
-			return new Promise((resolve, reject) => {
-				/**
-				 * check if user request new reddit account
-				 */
-				if (userInfo.request_reddit_user_id) {
-					const reqRedditUID = userInfo.request_reddit_user_id;
-	
-					if (text === 'yes') {
-						return mutex.lock([from_address], (unlock) => {
-							return db.query(
-								`UPDATE users 
-								SET request_reddit_user_id=?, reddit_user_id=?
-								WHERE device_address=?`,
-								[null, reqRedditUID, from_address],
-								() => {
-									unlock();
-
-									userData.getRedditUserDataById(reqRedditUID, (row) => {
-										resolve(texts.confirmedRequestRedditAccount(row.reddit_name) + '\n\n' + texts.insertMyAddress());
-									});
-								}
-							);
-						});
-					}
-					if (text === 'no') {
-						return mutex.lock([from_address], (unlock) => {
-							return db.query(
-								`UPDATE users 
-								SET request_reddit_user_id=?
-								WHERE device_address=?`,
-								[null, from_address],
-								() => {
-									unlock();
-
-									userData.getRedditUserDataById(reqRedditUID, (row) => {
-										resolve(
-											texts.unconfirmedRequestRedditAccount(row.reddit_name) +
-											'\n\n' +
-											texts.allowAccessToRedditAccount(from_address)
-										);
-									});
-								}
-							);
-						});
-					}
-
-					return userData.getRedditUserDataById(reqRedditUID, (row) => {
-						resolve(texts.confirmRequestRedditAccount(row.reddit_name));
-					});
-				}
-
-				if (!userInfo.reddit_user_id) {
-					resolve(texts.allowAccessToRedditAccount(from_address));
-				} else {
-					resolve();
-				}
-			});
+		if (!userInfo.reddit_user_id) {
+			return device.sendMessageToDevice(from_address, 'text', 
+				(response ? response + '\n\n' : '') + texts.allowAccessToRedditAccount(from_address)
+			);
 		}
 
 		function checkUserAddress() {
@@ -434,106 +380,98 @@ function respond(from_address, text, response = '') {
 			});
 		}
 
-		checkRedditUser()
-			.then((redditUserResponse) => {
-				if (redditUserResponse) {
-					return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + redditUserResponse);
+		checkUserAddress()
+			.then((userAddressResponse) => {
+				if (userAddressResponse) {
+					return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + userAddressResponse);
 				}
 
-				checkUserAddress()
-					.then((userAddressResponse) => {
-						if (userAddressResponse) {
-							return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + userAddressResponse);
+				readOrAssignReceivingAddress(from_address, userInfo)
+					.then( ({receiving_address, post_publicly}) => {
+						const price = conf.priceInBytes;
+
+						if (text === 'private' || text === 'public') {
+							post_publicly = (text === 'public') ? 1 : 0;
+							db.query(
+								`UPDATE receiving_addresses 
+								SET post_publicly=? 
+								WHERE device_address=? AND user_address=? AND reddit_user_id=?`,
+								[post_publicly, from_address, userInfo.user_address, userInfo.reddit_user_id]
+							);
+							response += (text === "private") ? texts.privateChoose() : texts.publicChoose();
 						}
 
-						readOrAssignReceivingAddress(from_address, userInfo)
-							.then( ({receiving_address, post_publicly}) => {
-								const price = conf.priceInBytes;
+						if (post_publicly === null) {
+							return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + texts.privateOrPublic());
+						}
 
-								if (text === 'private' || text === 'public') {
-									post_publicly = (text === 'public') ? 1 : 0;
-									db.query(
-										`UPDATE receiving_addresses 
-										SET post_publicly=? 
-										WHERE device_address=? AND user_address=? AND reddit_user_id=?`,
-										[post_publicly, from_address, userInfo.user_address, userInfo.reddit_user_id]
-									);
-									response += (text === "private") ? texts.privateChoose() : texts.publicChoose();
-								}
+						if (text === 'again') {
+							return device.sendMessageToDevice(
+								from_address,
+								'text',
+								(response ? response + '\n\n' : '') + texts.pleasePay(receiving_address, price) + '\n\n' +
+								((post_publicly === 0) ? texts.privateChoose() : texts.publicChoose())
+							);
+						}
 
-								if (post_publicly === null) {
-									return device.sendMessageToDevice(from_address, 'text', (response ? response + '\n\n' : '') + texts.privateOrPublic());
-								}
-
-								if (text === 'again') {
+						db.query(
+							`SELECT
+								transaction_id, is_confirmed, received_amount, attestation_date
+							FROM transactions
+							JOIN receiving_addresses USING(receiving_address)
+							LEFT JOIN attestation_units USING(transaction_id)
+							WHERE receiving_address=?
+							ORDER BY transaction_id DESC
+							LIMIT 1`,
+							[receiving_address],
+							(rows) => {
+								/**
+								 * if user didn't pay yet
+								 */
+								if (rows.length === 0) {
 									return device.sendMessageToDevice(
 										from_address,
 										'text',
-										(response ? response + '\n\n' : '') + texts.pleasePay(receiving_address, price) + '\n\n' +
-										((post_publicly === 0) ? texts.privateChoose() : texts.publicChoose())
+										(response ? response + '\n\n' : '') + texts.pleasePayOrPrivacy(receiving_address, price, post_publicly)
 									);
 								}
 
-								db.query(
-									`SELECT
-										transaction_id, is_confirmed, received_amount, attestation_date
-									FROM transactions
-									JOIN receiving_addresses USING(receiving_address)
-									LEFT JOIN attestation_units USING(transaction_id)
-									WHERE receiving_address=?
-									ORDER BY transaction_id DESC
-									LIMIT 1`,
-									[receiving_address],
-									(rows) => {
-										/**
-										 * if user didn't pay yet
-										 */
-										if (rows.length === 0) {
-											return device.sendMessageToDevice(
-												from_address,
-												'text',
-												(response ? response + '\n\n' : '') + texts.pleasePayOrPrivacy(receiving_address, price, post_publicly)
-											);
-										}
+								const row = rows[0];
 
-										const row = rows[0];
+								/**
+								 * if user payed, but transaction did not become stable
+								 */
+								if (row.is_confirmed === 0) {
+									return device.sendMessageToDevice(
+										from_address,
+										'text',
+										(response ? response + '\n\n' : '') + texts.receivedYourPayment(row.received_amount)
+									);
+								}
 
-										/**
-										 * if user payed, but transaction did not become stable
-										 */
-										if (row.is_confirmed === 0) {
-											return device.sendMessageToDevice(
-												from_address,
-												'text',
-												(response ? response + '\n\n' : '') + texts.receivedYourPayment(row.received_amount)
-											);
-										}
+								/**
+								 * reddit account is in attestation
+								 */
+								if (!row.attestation_date) {
+									return device.sendMessageToDevice(
+										from_address,
+										'text',
+										(response ? response + '\n\n' : '') + texts.inAttestation()
+									);
+								}
 
-										/**
-										 * reddit account is in attestation
-										 */
-										if (!row.attestation_date) {
-											return device.sendMessageToDevice(
-												from_address,
-												'text',
-												(response ? response + '\n\n' : '') + texts.inAttestation()
-											);
-										}
-
-										/**
-										 * no more available commands, reddit account is attested
-										 */
-										return device.sendMessageToDevice(
-											from_address,
-											'text',
-											(response ? response + '\n\n' : '') + texts.alreadyAttested(row.attestation_date)
-										);
-
-									}
+								/**
+								 * no more available commands, reddit account is attested
+								 */
+								return device.sendMessageToDevice(
+									from_address,
+									'text',
+									(response ? response + '\n\n' : '') + texts.alreadyAttested(row.attestation_date)
 								);
 
-							})
-							.catch(catchRespondError);
+							}
+						);
+
 					})
 					.catch(catchRespondError);
 			})
@@ -570,7 +508,8 @@ function getRewardInUSDByKarma(karma) {
  */
 function readUserInfo(device_address, callback) {
 	db.query(
-		`SELECT user_address, reddit_user_id, request_reddit_user_id 
+		`SELECT 
+			user_address, reddit_user_id 
 		FROM users 
 		WHERE device_address = ?`, 
 		[device_address], 

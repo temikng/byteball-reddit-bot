@@ -10,7 +10,6 @@ exports.getRedditUserDataById = (id, cb) => {
 	db.query(
 		`SELECT *
 		FROM reddit_users
-		JOIN reddit_users_data USING(reddit_user_id, user_data_version)
 		WHERE reddit_user_id=?`,
 		[id],
 		(rows) => {
