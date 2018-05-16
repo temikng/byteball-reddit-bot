@@ -5,7 +5,7 @@ const objectHash = require('byteballcore/object_hash.js');
 const db = require('byteballcore/db');
 const notifications = require('./notifications');
 const texts = require('./texts');
-const userData = require('./user-data');
+const usefulFunctions = require('./useful-functions');
 
 function retryPostingAttestations() {
 	db.query(
@@ -19,7 +19,7 @@ function retryPostingAttestations() {
 		(rows) => {
 			rows.forEach((row) => {
 
-				userData.getRedditUserDataById(row.reddit_user_id, (reddit_user_data) => {
+				usefulFunctions.getRedditUserDataById(row.reddit_user_id, (reddit_user_data) => {
 					let	[attestation, src_profile] = getAttestationPayloadAndSrcProfile(
 						row.user_address,
 						reddit_user_data,

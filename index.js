@@ -11,7 +11,7 @@ const notifications = require('./modules/notifications');
 const conversion = require('./modules/conversion.js');
 const redditAttestation = require('./modules/reddit-attestation.js');
 const reward = require('./modules/reward.js');
-const userData = require('./modules/user-data');
+const usefulFunctions = require('./modules/useful-functions');
 const server = require('./modules/server');
 
 /**
@@ -30,6 +30,15 @@ eventBus.once('headless_and_rates_ready', handleHeadlessAndRatesReady);
  * ready headless wallet
  */
 eventBus.once('headless_wallet_ready', handleWalletReady);
+
+process.on('uncaughtException', (err) => {
+	notifications.notifyAdmin('uncaught exception', err.toString());
+	setTimeout(() => {
+		console.error(err);
+		process.exit(1);
+	}, 1000);
+});
+
 
 function handleHeadlessAndRatesReady() {
 	if (conf.bRunWitness) {
@@ -85,10 +94,19 @@ function handleWalletReady() {
 		if (!conf.salt) {
 			error += texts.errorConfigSalt();
 		}
-    server.checkConfig(error);
+		server.checkConfig(error);
 
 		if (error) {
 			throw new Error(error);
+		}
+
+		if (conf.rewardInUSD) {
+			conf.sortedRewardInUSD = {};
+			Object.keys(conf.rewardInUSD)
+				.sort()
+				.forEach((key) => {
+					conf.sortedRewardInUSD[key] = conf.rewardInUSD[key];
+				});
 		}
 
 		headlessWallet.issueOrSelectAddressByIndex(0, 0, (address1) => {
@@ -100,7 +118,7 @@ function handleWalletReady() {
 				console.log('== distribution address: ' + address2);
 				reward.distributionAddress = address2;
 
-        server.start();
+				server.start();
 
 				setInterval(redditAttestation.retryPostingAttestations, 10*1000);
 				setInterval(reward.retrySendingRewards, 10*1000);
@@ -261,7 +279,7 @@ function handleTransactionsBecameStable(arrUnits) {
 							texts.inAttestation()
 						);
 
-						userData.getRedditUserDataById(reddit_user_id, (reddit_user_data) => {
+						usefulFunctions.getRedditUserDataById(reddit_user_id, (reddit_user_data) => {
 
 							db.query(
 								`INSERT ${db.getIgnore()} INTO attestation_units 
@@ -284,7 +302,7 @@ function handleTransactionsBecameStable(arrUnits) {
 									);
 	
 									if (conf.rewardInUSD) {
-										const rewardInUSD = getRewardInUSDByKarma(reddit_user_data.reddit_karma);
+										const rewardInUSD = usefulFunctions.getRewardInUSDByKarma(reddit_user_data.reddit_karma);
 										console.error('rewardInUSD', rewardInUSD);
 										if (!rewardInUSD) {
 											return;
@@ -340,7 +358,7 @@ function handleTransactionsBecameStable(arrUnits) {
 								}
 							);
 
-						}); // userData.getRedditUserDataById
+						}); // usefulFunctions.getRedditUserDataById
 
 					}
 				);
@@ -443,7 +461,7 @@ function respond(from_address, text, response = '') {
 								const row = rows[0];
 
 								/**
-								 * if user payed, but transaction did not become stable
+								 * if user paid, but transaction did not become stable
 								 */
 								if (row.is_confirmed === 0) {
 									return device.sendMessageToDevice(
@@ -485,23 +503,6 @@ function respond(from_address, text, response = '') {
 
 function catchRespondError(err) {
 	notifications.notifyAdmin('respond error', err.toString());
-}
-
-/**
- * get count of usd by reddit account karma value
- * @param {number} karma
- * @return {number}
- */
-function getRewardInUSDByKarma(karma) {
-	let prevCountKarma = 0;
-	for (let countKarma in conf.rewardInUSD) {
-		if (!conf.rewardInUSD.hasOwnProperty(countKarma)) continue;
-		if (karma < countKarma) {
-			return conf.rewardInUSD[prevCountKarma];
-		}
-		prevCountKarma = countKarma;
-	}
-	return conf.rewardInUSD[prevCountKarma] || 0;
 }
 
 /**

@@ -13,7 +13,7 @@ exports.greeting = () => {
 		`The price of attestation is ${conf.priceInBytes/1e9} GB. `,
 		"The payment is nonrefundable even if the attestation fails for any reason.\n\n",
 
-		'You need to grand access to your Reddit account data.\n\n',
+		'You need to grant access to your Reddit account data.\n\n',
 
 		`After you successfully complete attestation for the first time, `,
 		`you receive a reward in Bytes depending on your Reddit account karma.`
@@ -39,7 +39,7 @@ exports.weHaveReferralProgram = () => {
 exports.allowAccessToRedditAccount = (state) => {
 	return [
 		`Please, click the URL: ${conf.redditAuthURL}?state=${state}\n`,
-		'To grand access to your Reddit account data.',
+		'To grant access to your Reddit account data.',
 	].join('');
 };
 
@@ -49,7 +49,7 @@ exports.usedTheSameRedditAccount = (name) => {
 
 exports.gaveAccessRedditAccount = (name) => {
 	return [
-		`Recieved grand access to your Reddit account: ${name}\n`, 
+		`Received grant access to your Reddit account: ${name}\n`, 
 		'It will be used for attestation.'
 	].join('');
 };
