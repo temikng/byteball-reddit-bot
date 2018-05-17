@@ -45,12 +45,13 @@ exports.reddit = {
   callbackURL: 'http://127.0.0.1:8080/auth/callback'
 };
 
-// Reddit karma rewards sequence { karma(from): usd }
-exports.rewardInUSD = {
-  0: 0,
-  1000: 5,
-  10000: 10,
-};
+// Reddit karma rewards
+exports.arrRedditKarmaRewardsInUsd = [
+	{threshold: 1e5, rewardInUsd: 0.2},
+	{threshold: 1e6, rewardInUsd: 3},
+	{threshold: 10e6, rewardInUsd: 40},
+	{threshold: 100e6, rewardInUsd: 150}
+];
 
 // web server
 exports.web = {
