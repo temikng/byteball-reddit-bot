@@ -10,7 +10,7 @@ const mutex = require('byteballcore/mutex.js');
 const conf = require('byteballcore/conf.js');
 const texts = require('./texts');
 const notifications = require('./notifications');
-const usefulFunctions = require('./useful-functions');
+const redditData = require('./reddit-data');
 
 passport.use(new RedditStrategy(
 	conf.reddit,
@@ -34,7 +34,7 @@ app.use(passport.initialize());
 app.get('/auth', (req, res, next) => {
 	const state = req.query.state;
 	console.log('auth', state);
-	checkingIncomingState(state, (err) => {
+	checkIncomingState(state, (err) => {
 		if (err) {
 			return next(err);
 		}
@@ -50,7 +50,7 @@ app.get('/auth/callback', (req, res, next) => {
 	if (error) {
 		return next( new Error(422) );
 	}
-	checkingIncomingState(state, (err, row) => {
+	checkIncomingState(state, (err, row) => {
 		if (err) {
 			return next(err);
 		}
@@ -112,7 +112,7 @@ app.get('/auth/callback', (req, res, next) => {
 					if (status !== 'new' && row.reddit_user_id === reddit_user_id) {
 						return device.sendMessageToDevice(row.device_address, 'text', 
 							texts.usedTheSameRedditAccount(user.name) +
-							(status === 'update' ? ('\n\n' + texts.receiveRewardInUSD(usefulFunctions.getRewardInUSDByKarma(userKarma)) ) : '') + 
+							(status === 'update' ? ('\n\n' + texts.receiveRewardInUSD(redditData.getRewardInUSDByKarma(userKarma)) ) : '') + 
 							(!row.user_address ? ('\n\n' + texts.insertMyAddress() ) : '')
 						);
 					}
@@ -124,7 +124,7 @@ app.get('/auth/callback', (req, res, next) => {
 							() => {
 								device.sendMessageToDevice(row.device_address, 'text', 
 									texts.gaveAccessRedditAccount(user.name) + '\n\n' +
-									texts.receiveRewardInUSD(usefulFunctions.getRewardInUSDByKarma(userKarma)) +
+									texts.receiveRewardInUSD(redditData.getRewardInUSDByKarma(userKarma)) +
 									(!row.user_address ? ('\n\n' + texts.insertMyAddress()) : '')
 								);
 								unlock();
@@ -151,7 +151,7 @@ app.use((err, req, res, next) => {
 	res.status(status).send(HttpStatus.getStatusText(status));
 });
 
-function checkingIncomingState(state, cb) {
+function checkIncomingState(state, cb) {
 	if (!state) {
 		return cb( new Error(422) );
 	}

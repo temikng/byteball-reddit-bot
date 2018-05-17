@@ -11,7 +11,7 @@ const notifications = require('./modules/notifications');
 const conversion = require('./modules/conversion.js');
 const redditAttestation = require('./modules/reddit-attestation.js');
 const reward = require('./modules/reward.js');
-const usefulFunctions = require('./modules/useful-functions');
+const redditData = require('./modules/reddit-data');
 const server = require('./modules/server');
 
 /**
@@ -32,11 +32,8 @@ eventBus.once('headless_and_rates_ready', handleHeadlessAndRatesReady);
 eventBus.once('headless_wallet_ready', handleWalletReady);
 
 process.on('uncaughtException', (err) => {
-	notifications.notifyAdmin('uncaught exception', err.toString());
-	setTimeout(() => {
-		console.error(err);
-		process.exit(1);
-	}, 1000);
+	console.error(err);
+	process.exit(1);
 });
 
 
@@ -70,7 +67,7 @@ function handleWalletReady() {
 	let error = '';
 
 	/**
-	 * check if database tables is created
+	 * check if database tables are created
 	 */
 	let arrTableNames = [
 		'reddit_users','users','receiving_addresses','transactions','attestation_units',
@@ -98,15 +95,6 @@ function handleWalletReady() {
 
 		if (error) {
 			throw new Error(error);
-		}
-
-		if (conf.rewardInUSD) {
-			conf.sortedRewardInUSD = {};
-			Object.keys(conf.rewardInUSD)
-				.sort()
-				.forEach((key) => {
-					conf.sortedRewardInUSD[key] = conf.rewardInUSD[key];
-				});
 		}
 
 		headlessWallet.issueOrSelectAddressByIndex(0, 0, (address1) => {
@@ -279,7 +267,7 @@ function handleTransactionsBecameStable(arrUnits) {
 							texts.inAttestation()
 						);
 
-						usefulFunctions.getRedditUserDataById(reddit_user_id, (reddit_user_data) => {
+						redditData.getRedditUserDataById(reddit_user_id, (reddit_user_data) => {
 
 							db.query(
 								`INSERT ${db.getIgnore()} INTO attestation_units 
@@ -301,9 +289,8 @@ function handleTransactionsBecameStable(arrUnits) {
 										src_profile
 									);
 	
-									if (conf.rewardInUSD) {
-										const rewardInUSD = usefulFunctions.getRewardInUSDByKarma(reddit_user_data.reddit_karma);
-										console.error('rewardInUSD', rewardInUSD);
+									if (conf.arrRedditKarmaRewardsInUsd && conf.arrRedditKarmaRewardsInUsd.length) {
+										const rewardInUSD = redditData.getRewardInUSDByKarma(reddit_user_data.reddit_karma);
 										if (!rewardInUSD) {
 											return;
 										}
@@ -353,12 +340,12 @@ function handleTransactionsBecameStable(arrUnits) {
 	
 											}
 										);
-									} // if conf.rewardInUSD
+									} // if conf.arrRedditKarmaRewardsInUsd
 	
 								}
 							);
 
-						}); // usefulFunctions.getRedditUserDataById
+						}); // redditData.getRedditUserDataById
 
 					}
 				);

@@ -25,14 +25,12 @@ exports.getRedditUserDataById = (id, cb) => {
  * @return {number}
  */
 exports.getRewardInUSDByKarma = (karma) => {
-	console.error('!!!!!!!!!!!!!!getRewardInUSDByKarma', conf.sortedRewardInUSD);
-	let prevCountKarma = 0;
-	for (let countKarma in conf.sortedRewardInUSD) {
-		if (!conf.sortedRewardInUSD.hasOwnProperty(countKarma)) continue;
-		if (karma < countKarma) {
-			return conf.sortedRewardInUSD[prevCountKarma];
+	let reward = 0;
+	conf.arrRedditKarmaRewardsInUsd.forEach((row) => {
+		if (karma > row.threshold && 
+				reward < row.rewardInUsd) {
+			reward = row.rewardInUsd;
 		}
-		prevCountKarma = countKarma;
-	}
-	return conf.sortedRewardInUSD[prevCountKarma] || 0;
-}
+	});
+	return reward;
+};
