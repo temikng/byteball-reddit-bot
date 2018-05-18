@@ -31,9 +31,9 @@ eventBus.once('headless_and_rates_ready', handleHeadlessAndRatesReady);
  */
 eventBus.once('headless_wallet_ready', handleWalletReady);
 
-process.on('uncaughtException', (err) => {
+process.on('unhandledRejection', (err) => {
 	console.error(err);
-	process.exit(1);
+	throw err;
 });
 
 
